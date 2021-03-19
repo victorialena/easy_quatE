@@ -11,7 +11,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.utils.data import DataLoader
-from dataloader import TestDataset
+from dataloader import TrainDataset
 from collections import defaultdict
 
 from ogb.linkproppred import Evaluator
@@ -50,46 +50,44 @@ class KGEModel(nn.Module):
         
         self.evaluator = evaluator
         
-    def forward(self, sample, Y = torch.ones(batch_size,)):
+    def forward(self, sample, Y):
         '''
         sample : a batch of triple.
         IDEA : should we use negative samples?
         '''
 
-        batch_size, negative_sample_size = sample.size(0), torch.sum(Y == -1).item()
+        batch_size, negative_sample_size = sample.shape[0], torch.sum(Y == -1).item()
 
         head = torch.index_select(
             self.entity_embedding, 
             dim=0, 
-            index=sample[:,0]
-        ).unsqueeze(1)
+            index=sample[:,0])#.unsqueeze(1)
+       
 
         relation = torch.index_select(
             self.relation_embedding, 
             dim=0, 
-            index=sample[:,1]
-        ).unsqueeze(1)
+            index=sample[:,1])#.unsqueeze(1)
 
         tail = torch.index_select(
             self.entity_embedding, 
             dim=0, 
-            index=sample[:,2]
-        ).unsqueeze(1)
+            index=sample[:,2])#.unsqueeze(1)
         
-        score = QuatE(head, relation, tail, Y)
+        score = self.QuatE(head, relation, tail, Y)
         
         return score
     
-    def hamilton_product(A, B):
+    def hamilton_product(self, A, B):
         assert A.shape == B.shape
         
         n, k, d = A.shape
         assert d == 4
         
-        p = torch.sum(torch.mul(torch.mul(A, B), [1, -1, -1, -1]), dim=2)
-        q = torch.sum(torch.mul(torch.mul(A, B[:, :, [1, 0, 3, 2]]), [1, 1, 1, -1]), dim=2)
-        u = torch.sum(torch.mul(torch.mul(A, B[:, :, [2, 3, 0, 1]]), [1, -1, 1, 1]), dim=2)
-        v = torch.sum(torch.mul(torch.mul(A, B[:, :, [3, 2, 1, 0]]), [1, 1, -1, 1]), dim=2)
+        p = torch.sum(torch.mul(torch.mul(A, B), torch.tensor([1, -1, -1, -1])), dim=2)
+        q = torch.sum(torch.mul(torch.mul(A, B[:, :, [1, 0, 3, 2]]), torch.tensor([1, 1, 1, -1])), dim=2)
+        u = torch.sum(torch.mul(torch.mul(A, B[:, :, [2, 3, 0, 1]]), torch.tensor([1, -1, 1, 1])), dim=2)
+        v = torch.sum(torch.mul(torch.mul(A, B[:, :, [3, 2, 1, 0]]), torch.tensor([1, 1, -1, 1])), dim=2)
         
         return torch.stack([p,q,u,v], dim=2)
     
@@ -100,18 +98,17 @@ class KGEModel(nn.Module):
         tail : tail node embedding (N, k*4)
         Y : (N, ) 1 if positive sample, -1 is negative sample
         '''
-                
-        #p_head, q_head, u_head, v_head = torch.chunk(head, 4, dim=2)
-        #p_tail, q_tail, u_tail, v_tail = torch.chunk(tail, 4, dim=2)
         
-        head = torch.reshape(head, (self.nentity, self.hidden_dim, 4))
-        tail = torch.reshape(tail, (self.nentity, self.hidden_dim, 4))
-        relation = torch.reshape(relation, (self.nrelation, self.hidden_dim, 4))
+        batch_size = head.shape[0]
+        
+        head = torch.reshape(head, (batch_size, self.hidden_dim, 4))
+        tail = torch.reshape(tail, (batch_size, self.hidden_dim, 4))
+        relation = torch.reshape(relation, (batch_size, self.hidden_dim, 4))
         
         # normalize W_r
-        normalized_relation = relation / torch.norm(relation, dim=2)
+        normalized_relation = F.normalize(relation, p=2, dim=2)
         
-        headp = hamilton_product(head, normalized_relation)
+        headp = self.hamilton_product(head, normalized_relation)
         phi = torch.sum(torch.mul(headp, tail), dim=(2,1)) # (N,)
         
         loss = torch.sum(torch.log(1+torch.exp(-Y*phi)))
@@ -129,7 +126,7 @@ class KGEModel(nn.Module):
         optimizer.zero_grad()
         samples, Y = next(train_iterator)
 
-        if args.cuda:
+        if args["cuda"]: # args.cuda:
             samples = samples.cuda()
             Y = Y.cuda()
         

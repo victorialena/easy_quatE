@@ -74,9 +74,7 @@ class KGEModel(nn.Module):
             dim=0, 
             index=sample[:,2])#.unsqueeze(1)
         
-        score = self.QuatE(head, relation, tail, Y)
-        
-        return score
+        return self.QuatE(head, relation, tail, Y)
     
     def hamilton_product(self, A, B):
         assert A.shape == B.shape
@@ -111,10 +109,9 @@ class KGEModel(nn.Module):
         headp = self.hamilton_product(head, normalized_relation)
         phi = torch.sum(torch.mul(headp, tail), dim=(2,1)) # (N,)
         
-        loss = torch.sum(torch.log(1+torch.exp(-Y*phi)))
-        loss = loss + self.lambda_e * torch.norm(self.entity_embedding) + self.lambda_r * torch.norm(self.relation_embedding)
+        loss = torch.log(1+torch.exp(-Y*phi))
         
-        return loss
+        return loss, Y
 
     # @staticmethod
     def train_step(model, optimizer, train_iterator, args):
@@ -130,8 +127,43 @@ class KGEModel(nn.Module):
             samples = samples.cuda()
             Y = Y.cuda()
         
-        loss = model(samples, Y)
+        scores, _ = model(samples, Y)
+        loss = torch.mean(scores) + model.lambda_e * torch.norm(model.entity_embedding) + model.lambda_r * torch.norm(model.relation_embedding)
         loss.backward()
         optimizer.step()
         
-        return loss
+        return loss.item()
+    
+    def test_step(model, data_iterator, args):
+        '''
+        Evaluate the model on test or valid datasets
+        '''
+
+        model.eval()
+        test_logs = defaultdict(list)
+
+        with torch.no_grad():
+            for step in range(data_iterator.epoch_size):
+                samples, Y = next(data_iterator)
+                if args["cuda"]:
+                    samples = samples.cuda()
+                    Y = Y.cuda()
+
+                batch_size = samples.shape[0]
+                scores, _ = model(samples, Y)
+                loss = torch.mean(scores).item()
+
+                batch_results = model.evaluator.eval({'y_pred_pos': scores[Y==1], 'y_pred_neg': scores[Y==-1].unsqueeze(1)})
+                
+                for metric in batch_results:
+                    test_logs[metric].append(batch_results[metric])
+                
+                if step % args["test_log_steps"] == 0:
+                    print('Evaluating the model... ', step, ',', data_iterator.epoch_size)
+                    print('loss = ', loss)
+                    
+            metrics = {}
+            for metric in test_logs:
+                metrics[metric] = torch.cat(test_logs[metric]).mean().item()
+
+        return loss, metrics

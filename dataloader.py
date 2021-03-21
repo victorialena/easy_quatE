@@ -12,12 +12,19 @@ from torch.utils.data import Dataset
 from pandas import DataFrame
 import pdb
 
-# def isin(a, dset, i=0):
-#     if len(dset) == 0:
-#         return False
-#     if i == len(a)-1: #last idx
-#         return any(a[i] == dset[:, i])
-#     return isin(a, dset[a[i] == dset[:, i]] ,i+1)
+def filter_relations(triples, verbose = True):
+    drug_sideeffect = np.stack([np.array(triples['head_type']) == 'drug',
+                            np.array(triples['tail_type'])=='sideeffect']).all(0)
+    drug_disease = np.stack([np.array(triples['head_type'])=='drug',
+                         np.array(triples['tail_type'])=='disease']).all(0)
+    drug_protein = np.stack([np.array(triples['head_type'])=='drug',
+                         np.array(triples['tail_type'])=='protein']).all(0)
+    disease_protein = np.stack([np.array(triples['head_type'])=='disease',
+                         np.array(triples['tail_type'])=='protein']).all(0)
+    idx = np.stack([drug_disease, drug_sideeffect, drug_protein, disease_protein]).any(0)
+    if verbose:
+        print("filtering relation types ", np.unique(triples['relation'][idx]))
+    return idx
 
 def isin(a, dset):
     for i in range(len(a)):
@@ -28,23 +35,30 @@ class TrainDataset(Dataset):
     def __init__(self, triples, nentity, nrelation, 
                  batch_size, negative_sample_size, 
                  entity_dict,
-                 train_triples = None,
-                 shuffle = False):
+                 filter_idx = None, 
+                 #train_triples = None,
+                 shuffle = True):
         self.len = len(triples['head'])
         
         ht = [entity_dict[t][0] for t in triples['head_type']]
         tt = [entity_dict[t][0] for t in triples['tail_type']]
         self.triples = DataFrame({"head": triples['head']+ht,
-                                  "relation": triples['relation'], 
-                                  "tail": triples['tail']+tt})
+                                  "relation": triples['relation'],
+                                  "tail": triples['tail']+tt}).to_numpy()
+        
+        if filter_idx is not None:
+            self.triples = self.triples[filter_idx]
+            self.len = len(self.triples)
+        if shuffle:
+            np.random.shuffle(self.triples)
+            
+        '''
         self.train_triples = None
         if train_triples is not None:
             ht = [entity_dict[t][0] for t in train_triples['head_type']]
             tt = [entity_dict[t][0] for t in train_triples['tail_type']]
             self.train_triples = np.vstack([train_triples['head']+ht,train_triples['relation'], train_triples['tail']+tt]).T
-        
-        if shuffle:
-            self.triples.sample(frac=1).reset_index(drop=True)
+        '''
         
         self.nentity = nentity
         self.nrelation = nrelation
@@ -54,13 +68,17 @@ class TrainDataset(Dataset):
         self.negative_sample_size = negative_sample_size
         self.positive_sample_size = batch_size - negative_sample_size
         
+        self.n_batch = int(self.len/self.positive_sample_size) -1
+        
     def __len__(self):
         return self.len
     
     def __getitem__(self, idx):
+        idx = idx%self.n_batch
         s = idx*self.positive_sample_size
-        e = (idx+1)*self.positive_sample_size-1
-        samples = self.triples.loc[s:e].squeeze().to_numpy()
+        e = (idx+1)*self.positive_sample_size#-1
+            
+        samples = self.triples[s:e] #self.triples.loc[s:e].squeeze().to_numpy()
         Y = np.ones(self.positive_sample_size,)
         
         if self.negative_sample_size > 0:
@@ -71,16 +89,17 @@ class TrainDataset(Dataset):
         return torch.tensor(samples), torch.tensor(Y)
     
     def get_n_negative_samples(self, n):
-        data = self.triples.to_numpy()
-        samples = data[np.random.randint(data.shape[0], size=n), :]
+        samples = self.triples[np.random.randint(self.triples.shape[0], size=n)]
+        '''
         if self.train_triples is not None:
             data = np.append(data, self.train_triples, axis=0)
+        '''
         idx = 0 if np.random.rand() > 0.5 else 2
         samples[:, idx] = np.random.randint(self.nentity, size=n)
-        y = np.array([isin(x, data) for x in samples])
+        y = np.array([isin(x, self.triples) for x in samples])
         while any(y):
             samples[y==1, idx] = np.random.randint(self.nentity, size=sum(y))
-            y[y==1] = np.array([isin(x, data) for x in samples[y==1]])
+            y[y==1] = np.array([isin(x, self.triples) for x in samples[y==1]])
         return samples
     
 class DatasetIterator(object):

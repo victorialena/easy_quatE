@@ -38,7 +38,9 @@ Arxiv_dataset(Batch):
 Hardware : GeForce RTX 208
 
 ### Reference performance for OGB:
-|           |                            Test                    |                                                    |
+
+The first batch of metrics are reported based on the test set and the second set of metrics are based off the validation resuls.
+
 | Model     | MRR        | Accuracy   | Precision    | Recall    |   MRR      | Accuracy   | Precision    | Recall    |
 | ----------|----------- | -----------| -------------|-----------|----------- | -----------| -------------|-----------|
 | QuatE     | 0.7652     |  0.5690    |   0.6126     |  0.4585   | 0.7995     |  0.5990    |   0.6391     |  0.5982   |

@@ -37,7 +37,6 @@ class KGEModel(nn.Module):
         
         self.entity_dim = hidden_dim*4 
         self.relation_dim = hidden_dim*4
-        #self.linear = nn.Linear(in_features=hidden_dim, out_features=hidden_dim)
         
         self.entity_embedding = nn.Parameter(torch.zeros(nentity, self.entity_dim))
         nn.init.uniform_(
@@ -85,10 +84,10 @@ class KGEModel(nn.Module):
         n, k, d = A.shape
         assert d == 4
         
-        p = torch.sum(torch.mul(torch.mul(A, B), torch.tensor([1, -1, -1, -1])), dim=2)
-        q = torch.sum(torch.mul(torch.mul(A, B[:, :, [1, 0, 3, 2]]), torch.tensor([1, 1, 1, -1])), dim=2)
-        u = torch.sum(torch.mul(torch.mul(A, B[:, :, [2, 3, 0, 1]]), torch.tensor([1, -1, 1, 1])), dim=2)
-        v = torch.sum(torch.mul(torch.mul(A, B[:, :, [3, 2, 1, 0]]), torch.tensor([1, 1, -1, 1])), dim=2)
+        p = torch.sum(torch.mul(torch.mul(A, B), torch.tensor([1, -1, -1, -1]).cuda()), dim=2)
+        q = torch.sum(torch.mul(torch.mul(A, B[:, :, [1, 0, 3, 2]]), torch.tensor([1, 1, 1, -1]).cuda()), dim=2)
+        u = torch.sum(torch.mul(torch.mul(A, B[:, :, [2, 3, 0, 1]]), torch.tensor([1, -1, 1, 1]).cuda()), dim=2)
+        v = torch.sum(torch.mul(torch.mul(A, B[:, :, [3, 2, 1, 0]]), torch.tensor([1, 1, -1, 1]).cuda()), dim=2)
         
         return torch.stack([p,q,u,v], dim=2)
     
@@ -110,10 +109,9 @@ class KGEModel(nn.Module):
         normalized_relation = F.normalize(relation, p=2, dim=2)
         
         headp = self.hamilton_product(head, normalized_relation)
-        #headp = torch.tanh(headp)
-        phi = torch.sum(torch.mul(headp, tail), dim=(2,1)) # (N,) #torch.norm(headp - tail, dim=(2,1))
+        phi = torch.sum(torch.mul(headp, tail), dim=(2,1)) 
         
-        loss = torch.log(1+torch.exp(-Y*phi)) #-torch.log(torch.sigmoid(Y*(self.gamma - phi))) #
+        loss = torch.log(1+torch.exp(-Y*phi))
         
         return loss, Y
 
@@ -132,7 +130,7 @@ class KGEModel(nn.Module):
             Y = Y.cuda()
         
         scores, _ = model(samples, Y)
-        loss = torch.mean(scores) + model.lambda_e * torch.norm(model.entity_embedding) + model.lambda_r*torch.norm(model.relation_embedding)
+        loss = torch.mean(scores) #+ model.lambda_e * torch.norm(model.entity_embedding) + model.lambda_r*torch.norm(model.relation_embedding)
         loss.backward()
         optimizer.step()
         

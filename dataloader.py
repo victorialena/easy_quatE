@@ -36,7 +36,7 @@ class TrainDataset(Dataset):
                  batch_size, negative_sample_size, 
                  entity_dict,
                  filter_idx = None, 
-                 #train_triples = None,
+                 train_triples = None,
                  shuffle = True):
         self.len = len(triples['head'])
         
@@ -48,17 +48,16 @@ class TrainDataset(Dataset):
         
         if filter_idx is not None:
             self.triples = self.triples[filter_idx]
+            print(np.unique(self.triples[:, 1]))
             self.len = len(self.triples)
         if shuffle:
             np.random.shuffle(self.triples)
             
-        '''
         self.train_triples = None
         if train_triples is not None:
             ht = [entity_dict[t][0] for t in train_triples['head_type']]
             tt = [entity_dict[t][0] for t in train_triples['tail_type']]
             self.train_triples = np.vstack([train_triples['head']+ht,train_triples['relation'], train_triples['tail']+tt]).T
-        '''
         
         self.nentity = nentity
         self.nrelation = nrelation
@@ -76,9 +75,9 @@ class TrainDataset(Dataset):
     def __getitem__(self, idx):
         idx = idx%self.n_batch
         s = idx*self.positive_sample_size
-        e = (idx+1)*self.positive_sample_size#-1
+        e = (idx+1)*self.positive_sample_size
             
-        samples = self.triples[s:e] #self.triples.loc[s:e].squeeze().to_numpy()
+        samples = self.triples[s:e] 
         Y = np.ones(self.positive_sample_size,)
         
         if self.negative_sample_size > 0:
@@ -90,16 +89,16 @@ class TrainDataset(Dataset):
     
     def get_n_negative_samples(self, n):
         samples = self.triples[np.random.randint(self.triples.shape[0], size=n)]
-        '''
+        data = self.triples
         if self.train_triples is not None:
             data = np.append(data, self.train_triples, axis=0)
-        '''
+
         idx = 0 if np.random.rand() > 0.5 else 2
         samples[:, idx] = np.random.randint(self.nentity, size=n)
-        y = np.array([isin(x, self.triples) for x in samples])
+        y = np.array([isin(x, data) for x in samples])
         while any(y):
             samples[y==1, idx] = np.random.randint(self.nentity, size=sum(y))
-            y[y==1] = np.array([isin(x, self.triples) for x in samples[y==1]])
+            y[y==1] = np.array([isin(x, data) for x in samples[y==1]])
         return samples
     
 class DatasetIterator(object):
